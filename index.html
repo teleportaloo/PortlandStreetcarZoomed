@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Portland Streetcar — Live Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a2e; color: #e0e0e0; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; }
+    #status-bar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px; background: #12122a; font-size: 13px; color: #aaa;
+      border-bottom: 1px solid #333; flex-shrink: 0;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #4CAF50; display: inline-block; }
+    .dot.error { background: #E24B4A; }
+    .dot.loading { background: #EF9F27; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    #vehicle-count { font-weight: 600; color: #fff; }
+    .legend { display: flex; gap: 16px; margin-left: auto; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .legend-swatch { width: 24px; height: 4px; border-radius: 2px; }
+    #map { flex: 1; }
+  </style>
+</head>
+<body>
+
+<div id="status-bar">
+  <span class="dot loading" id="dot"></span>
+  <span id="status-text">Connecting...</span>
+  <span id="vehicle-count"></span>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:#FFB74D"></div>NS Line</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#4FC3F7"></div>A Loop</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#AED581"></div>B Loop</div>
+  </div>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const AGENCY = 'portland-sc';
+const BASE   = 'https://retro.umoiq.com/s/xmlFeed';
+const PROXY  = 'https://api.allorigins.win/get?url=';
+
+const ROUTE_COLORS = { '193': '#FFB74D', '194': '#4FC3F7', '195': '#AED581', 'default': '#CE93D8' };
+const ROUTE_NAMES  = { '193': 'NS Line', '194': 'A Loop', '195': 'B Loop' };
+
+function routeColor(r) { return ROUTE_COLORS[r] || ROUTE_COLORS.default; }
+function routeName(r)  { return ROUTE_NAMES[r]  || `Route ${r}`; }
+function proxyUrl(u)   { return PROXY + encodeURIComponent(u); }
+
+const map = L.map('map', { center: [45.5275, -122.6818], zoom: 17 });
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO | Data: UMO IQ / Portland Streetcar',
+  subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+const markers = {};
+let lastTime = 0;
+const dot          = document.getElementById('dot');
+const statusText   = document.getElementById('status-text');
+const vehicleCount = document.getElementById('vehicle-count');
+
+function makeIcon(color, heading) {
+  const rad = ((heading || 0) - 90) * Math.PI / 180;
+  const px = (14 + 10 * Math.cos(rad)).toFixed(1);
+  const py = (14 + 10 * Math.sin(rad)).toFixed(1);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28">
+    <circle cx="14" cy="14" r="9" fill="${color}" stroke="white" stroke-width="2"/>
+    <line x1="14" y1="14" x2="${px}" y2="${py}" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+  </svg>`;
+  return L.divIcon({ html: svg, className: '', iconSize: [28, 28], iconAnchor: [14, 14] });
+}
+
+// Fetch a single route's path and draw it — runs independently, never blocks vehicles
+async function fetchRoute(routeTag) {
+  try {
+    const apiUrl = `${BASE}?command=routeConfig&a=${AGENCY}&r=${routeTag}`;
+    const resp = await fetch(proxyUrl(apiUrl));
+    const json = await resp.json();
+    const xml  = new DOMParser().parseFromString(json.contents, 'application/xml');
+    const color = routeColor(routeTag);
+    xml.querySelectorAll('path').forEach(pathEl => {
+      const points = Array.from(pathEl.querySelectorAll('point')).map(p => [
+        parseFloat(p.getAttribute('lat')),
+        parseFloat(p.getAttribute('lon'))
+      ]);
+      if (points.length > 1) {
+        L.polyline(points, { color, weight: 3, opacity: 0.75 }).addTo(map);
+      }
+    });
+  } catch (e) {
+    console.warn(`Route ${routeTag} failed:`, e);
+  }
+}
+
+async function fetchVehicles() {
+  const apiUrl = `${BASE}?command=vehicleLocations&a=${AGENCY}&t=${lastTime}`;
+  try {
+    const resp = await fetch(proxyUrl(apiUrl));
+    const json = await resp.json();
+    const xml  = new DOMParser().parseFromString(json.contents, 'application/xml');
+
+    const lt = xml.querySelector('lastTime');
+    if (lt) lastTime = lt.getAttribute('time') || lastTime;
+
+    const seenIds = new Set();
+    xml.querySelectorAll('vehicle').forEach(v => {
+      const id       = v.getAttribute('id');
+      const lat      = parseFloat(v.getAttribute('lat'));
+      const lon      = parseFloat(v.getAttribute('lon'));
+      const heading  = parseInt(v.getAttribute('heading') || 0);
+      const routeTag = v.getAttribute('routeTag') || '';
+      const dirTag   = (v.getAttribute('dirTag') || '').replace(/_/g, ' ');
+      const speed    = v.getAttribute('speedKmHr') || '0';
+
+      if (!id || isNaN(lat) || isNaN(lon)) return;
+      seenIds.add(id);
+
+      const color = routeColor(routeTag);
+      const icon  = makeIcon(color, heading);
+      const popup = `<b>Car ${id}</b><br>${routeName(routeTag)}<br>${dirTag}<br>${speed} km/h · ${heading}°`;
+
+      if (markers[id]) {
+        markers[id].setLatLng([lat, lon]);
+        markers[id].setIcon(icon);
+        markers[id].setPopupContent(popup);
+      } else {
+        markers[id] = L.marker([lat, lon], { icon }).addTo(map).bindPopup(popup);
+      }
+    });
+
+    Object.keys(markers).forEach(id => {
+      if (!seenIds.has(id)) { map.removeLayer(markers[id]); delete markers[id]; }
+    });
+
+    const count = Object.keys(markers).length;
+    dot.className = 'dot';
+    statusText.textContent = `Live · updated ${new Date().toLocaleTimeString()}`;
+    vehicleCount.textContent = `${count} streetcar${count !== 1 ? 's' : ''} active`;
+
+  } catch (e) {
+    dot.className = 'dot error';
+    statusText.textContent = `Error: ${e.message}`;
+    console.error(e);
+  }
+}
+
+// Start vehicles immediately, routes load in background independently
+fetchVehicles();
+setInterval(fetchVehicles, 15000);
+
+// Fire-and-forget — map lines appear whenever they're ready
+fetchRoute('193');
+fetchRoute('194');
+fetchRoute('195');
+</script>
+</body>
+</html>
