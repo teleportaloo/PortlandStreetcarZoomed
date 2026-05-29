@@ -50,7 +50,7 @@ function routeColor(r) { return ROUTE_COLORS[r] || ROUTE_COLORS.default; }
 function routeName(r)  { return ROUTE_NAMES[r]  || `Route ${r}`; }
 function proxyUrl(u)   { return PROXY + encodeURIComponent(u); }
 
-const map = L.map('map', { center: [45.5275, -122.6818], zoom: 17 });
+const map = L.map('map', { center: [45.5282, -122.6818], zoom: 17 });
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap contributors &copy; CARTO | Data: UMO IQ / Portland Streetcar',
   subdomains: 'abcd', maxZoom: 19
