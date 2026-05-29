@@ -30,9 +30,9 @@
   <span id="status-text">Connecting...</span>
   <span id="vehicle-count"></span>
   <div class="legend">
-    <div class="legend-item"><div class="legend-swatch" style="background:#FFB74D"></div>NS Line</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#4FC3F7"></div>A Loop</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#AED581"></div>B Loop</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#72a130"></div>NS Line</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#d91965"></div>A Loop</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#4650be"></div>B Loop</div>
   </div>
 </div>
 <div id="map"></div>
@@ -43,7 +43,7 @@ const AGENCY = 'portland-sc';
 const BASE   = 'https://retro.umoiq.com/s/xmlFeed';
 const PROXY  = 'https://api.allorigins.win/get?url=';
 
-const ROUTE_COLORS = { '193': '#FFB74D', '194': '#4FC3F7', '195': '#AED581', 'default': '#CE93D8' };
+const ROUTE_COLORS = { '193': '#72a130', '194': '#d91965', '195': '#4650be', 'default': '#CE93D8' };
 const ROUTE_NAMES  = { '193': 'NS Line', '194': 'A Loop', '195': 'B Loop' };
 
 function routeColor(r) { return ROUTE_COLORS[r] || ROUTE_COLORS.default; }
@@ -76,10 +76,9 @@ function makeIcon(color, heading) {
 // Fetch a single route's path and draw it — runs independently, never blocks vehicles
 async function fetchRoute(routeTag) {
   try {
-    const apiUrl = `${BASE}?command=routeConfig&a=${AGENCY}&r=${routeTag}`;
-    const resp = await fetch(proxyUrl(apiUrl));
-    const json = await resp.json();
-    const xml  = new DOMParser().parseFromString(json.contents, 'application/xml');
+    const resp = await fetch(`routes/${routeTag}.xml`);
+    const text = await resp.text();
+    const xml  = new DOMParser().parseFromString(text, 'application/xml');
     const color = routeColor(routeTag);
     xml.querySelectorAll('path').forEach(pathEl => {
       const points = Array.from(pathEl.querySelectorAll('point')).map(p => [
