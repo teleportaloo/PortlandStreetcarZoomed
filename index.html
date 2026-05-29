@@ -138,17 +138,18 @@ async function fetchVehicles() {
     dot.className = 'dot';
     statusText.textContent = `Live · updated ${new Date().toLocaleTimeString()}`;
     vehicleCount.textContent = `${count} streetcar${count !== 1 ? 's' : ''} active`;
+    setTimeout(fetchVehicles, 30000);
 
   } catch (e) {
     dot.className = 'dot error';
     statusText.textContent = `Error: ${e.message}`;
     console.error(e);
+    setTimeout(fetchVehicles, 5000);
   }
 }
 
 // Start vehicles immediately, routes load in background independently
 fetchVehicles();
-setInterval(fetchVehicles, 15000);
 
 // Fire-and-forget — map lines appear whenever they're ready
 fetchRoute('193');
